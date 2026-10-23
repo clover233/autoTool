@@ -1,6 +1,8 @@
 import os
 import logging
-import re
+import shlex
+import subprocess
+from pathlib import Path
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -10,56 +12,98 @@ sh = logging.StreamHandler()
 sh.setFormatter(formatter)
 logger.addHandler(sh)
 
-# 定义基础路径 /Users/clover/Documents/111/Traces
-BASE_PATH = "/Users/clover/Documents/111"
-TRACE_DIR = os.path.join(BASE_PATH, "Traces")
-OUTPUT_DIR = os.path.join(BASE_PATH, "Traces")
+# result1 下每个 PerformanceDynamic_* 目录都有自己的 Traces 子目录。
+BASE_PATH = Path("/Users/clover/Desktop/SeaOfStars7i/Result/result1")
+XCODE_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
+
+
+def find_trace_files():
+    """查找各 PerformanceDynamic_* / Traces 目录中的所有 .trace 包。"""
+    trace_files = []
+    for case_dir in sorted(BASE_PATH.glob("PerformanceDynamic_*")):
+        traces_dir = case_dir / "Traces"
+        if not traces_dir.is_dir():
+            logging.warning(f"跳过：未找到 Traces 目录: {traces_dir}")
+            continue
+
+        trace_files.extend(
+            path for path in traces_dir.iterdir()
+            if path.suffix.lower() == ".trace"
+        )
+    return sorted(trace_files)
 
 
 def gen_activitymonitor_all_traces():
     # xctrace export 命令的 XPath 字符串
-    xpath_str = "'/trace-toc/run[@number=\"1\"]/data/table[@schema=\"activity-monitor-process-live\"]'"
+    xpath_str = '/trace-toc/run[@number="1"]/data/table[@schema="activity-monitor-process-live"]'
 
-    # 检查 trace 目录是否存在
-    if not os.path.isdir(TRACE_DIR):
-        logging.error(f"Trace 目录不存在: {TRACE_DIR}")
+    if not BASE_PATH.is_dir():
+        logging.error(f"结果目录不存在: {BASE_PATH}")
         return
 
-    # 遍历 Trace 目录下的所有文件
-    for filename in os.listdir(TRACE_DIR):
-        # 筛选出所有以 .trace 结尾的文件
-        if filename.endswith(".trace"):
-            # 1. 构造完整的输入文件路径
-            input_file_path = os.path.join(TRACE_DIR, filename)
+    # 使用指定 Xcode 提供的 xctrace，不依赖 xcode-select 的当前设置。
+    if not XCODE_DEVELOPER_DIR.is_dir():
+        logging.error(f"Xcode Developer 目录不存在: {XCODE_DEVELOPER_DIR}")
+        return
 
-            # 2. 构造输出文件路径，获取不包含扩展名的文件名部分
-            base_filename = os.path.splitext(filename)[0]
+    command_env = os.environ.copy()
+    command_env["DEVELOPER_DIR"] = str(XCODE_DEVELOPER_DIR)
 
-            # 构造 XML 输出文件名
-            output_xml_filename = f"{base_filename}.xml"
-            output_ca_commit_file_path = os.path.join(OUTPUT_DIR, output_xml_filename)
-            logging.info(f"正在处理文件: {filename}")
+    trace_files = find_trace_files()
+    if not trace_files:
+        logging.warning(f"没有找到 .trace 文件: {BASE_PATH}/PerformanceDynamic_*/Traces")
+        return
 
-            # 3. 构造 xctrace 命令
-            # 原始路径字符串
-            raw_input_path = input_file_path
-            raw_output_path = output_ca_commit_file_path
+    logging.info(f"共找到 {len(trace_files)} 个 .trace 文件")
+    succeeded = 0
+    skipped = 0
+    failed = 0
 
-            # 对路径中的括号进行转义，以适应 xctrace shell 命令的格式
-            escaped_input_path = raw_input_path.replace("(", "\\(").replace(")", "\\)")
-            escaped_output_path = raw_output_path.replace("(", "\\(").replace(")", "\\)")
+    for index, input_file_path in enumerate(trace_files, start=1):
+        # XML 与 trace 保存在同一个 Traces 目录中，并使用相同的文件名。
+        output_xml_path = input_file_path.with_suffix(".xml")
+        if output_xml_path.is_file() and output_xml_path.stat().st_size > 0:
+            logging.info(f"[{index}/{len(trace_files)}] 已存在，跳过: {output_xml_path}")
+            skipped += 1
+            continue
 
-            xctrace_cmd = (
-                f"xctrace export --input {escaped_input_path} "
-                f"--xpath {xpath_str} "
-                f"--output {escaped_output_path}"
+        xctrace_cmd = [
+            "/usr/bin/xcrun",
+            "xctrace",
+            "export",
+            "--input",
+            str(input_file_path),
+            "--xpath",
+            xpath_str,
+            "--output",
+            str(output_xml_path),
+        ]
+        logging.info(
+            f"[{index}/{len(trace_files)}] 正在生成 XML: {input_file_path}\n"
+            f"{shlex.join(xctrace_cmd)}"
+        )
+
+        try:
+            subprocess.run(xctrace_cmd, check=True, env=command_env)
+        except subprocess.CalledProcessError as exc:
+            failed += 1
+            logging.error(
+                f"生成失败: {output_xml_path}，xctrace 退出码: {exc.returncode}"
             )
+            continue
 
-            logging.info(f"生成xml中...\n{xctrace_cmd}")
+        if not output_xml_path.is_file() or output_xml_path.stat().st_size == 0:
+            failed += 1
+            logging.error(f"xctrace 执行完成，但没有生成有效文件: {output_xml_path}")
+            continue
 
-            # 4. 执行命令
-            os.system(xctrace_cmd)
-            logging.info(f"文件 {output_xml_filename} 生成完成。\n---")
+        succeeded += 1
+        logging.info(f"生成完成: {output_xml_path}")
+
+    logging.info(
+        f"处理结束：成功 {succeeded}，跳过 {skipped}，失败 {failed}，"
+        f"总计 {len(trace_files)}"
+    )
 
 
 if __name__ == "__main__":

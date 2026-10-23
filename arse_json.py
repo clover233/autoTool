@@ -1,7 +1,11 @@
 import json, os, re
 from openpyxl import Workbook
+from datetime import datetime
 
-base = os.path.dirname(os.path.abspath(__file__))
+# 指定footprint文件所在目录，如果为None则使用当前脚本目录
+BASE_DIR = "/Users/clover/Desktop/paizhao"
+
+base = BASE_DIR if BASE_DIR else os.path.dirname(os.path.abspath(__file__))
 
 files = []
 for f in os.listdir(base):
@@ -14,7 +18,7 @@ print(f"Found {len(files)} JSON files")
 wb = Workbook()
 ws = wb.active
 ws.title = '全量原始数据'
-headers = ['filename', 'steps', 'proc_name', 'pid',
+headers = ['timestamp', 'filename', 'steps', 'proc_name', 'pid',
            'footprint（MB）', 'Dirty(MB)', 'Swapped(MB)',
            'Clean(MB)', 'Reclaimable(MB)', 'wired（MB）',
            'Clean（MB）+ footprint(MB)', 'Clean（MB）+ footprint(MB) - wired（MB）']
@@ -28,6 +32,22 @@ for step, fname in files:
         data = json.load(f)
 
     basename = fname.replace('.json', '')
+    # 提取时间戳并格式化为 hh:mm:ss.xxx 原格式: "2026-04-20T09:24:00.058+08:00"
+    timestamp = ''
+    if 'start_time' in data and 'date' in data['start_time']:
+        try:
+            date_str = data['start_time']['date']
+            if 'T' in date_str:
+                time_part = date_str.split('T')[1]
+                if '+' in time_part:
+                    timestamp = time_part.split('+')[0]
+                elif '-' in time_part and time_part.count('-') == 1:
+                    timestamp = time_part.split('-')[0]
+                else:
+                    timestamp = time_part
+        except Exception as e:
+            print(f"Warning: Failed to parse date from start_time: {e}")
+            timestamp = ''
 
     for proc in data.get('processes', []):
         cats = proc.get('categories', {})
@@ -41,7 +61,7 @@ for step, fname in files:
         clean_plus_fp = round(clean + footprint, 2)
         clean_plus_fp_minus_wired = round(clean + footprint - wired, 2)
 
-        ws.append([basename, str(step), proc.get('name', ''), str(proc.get('pid', '')),
+        ws.append([timestamp, basename, str(step), proc.get('name', ''), str(proc.get('pid', '')),
                    footprint, dirty, swapped, clean, reclaimable, wired,
                    clean_plus_fp, clean_plus_fp_minus_wired])
         row_count += 1

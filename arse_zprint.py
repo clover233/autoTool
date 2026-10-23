@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 公式：
-内核占用 = (所有 VM_KERN_* + zones) - VM_KERN_COUNT_BOOT_STOLEN + VM_KERN_COUNT_WIRED_残余
-驱动占用 = sum(wired memory 中的 com.apple.*) - com.apple.filesystems.apfs
+内核占用 = (wired memory 中的 所有 VM_KERN_* + zones) - VM_KERN_COUNT_BOOT_STOLEN + VM_KERN_COUNT_WIRED_残余
+驱动占用 = sum(wired memory 中的 com.apple.*) - com.apple.iokit.IOSurface - com.apple.filesystems.apfs
 其中：
 - VM_KERN_* 为 wired memory 页表中所有以 VM_KERN_ 开头的字段之和
 - VM_KERN_COUNT_WIRED_残余 = total Y of X 中 X - Y 的值
@@ -22,6 +22,8 @@ except ImportError:
     print("请运行: pip install openpyxl")
     exit(1)
 
+# 指定文件所在目录，如果为None则使用当前脚本目录
+BASE_DIR = "/Users/clover/Desktop/Result7i/Basic1/mem1"
 
 def parse_size(text):
     text = text.strip()
@@ -131,29 +133,20 @@ def calculate_memory(data):
 
     # 驱动占用
     driver_sum = sum(data['drivers'].values())
+    iosurface_kb = data['drivers'].get('com.apple.iokit.IOSurface', 0)
     apfs_kb = data['drivers'].get('com.apple.filesystems.apfs', 0)
-    driver_kb = driver_sum - apfs_kb
+    driver_kb = driver_sum - iosurface_kb - apfs_kb
 
     return kernel_kb, driver_kb
 
 
 def format_output_row(filename, data, kernel_kb, driver_kb, file_mtime):
-    timestamp = data.get('timestamp')
-    if not timestamp:
-        timestamp = datetime.fromtimestamp(file_mtime).strftime('%H:%M:%S')
-    else:
-        try:
-            if ' ' in timestamp:
-                timestamp = timestamp.split()[1] if ':' in timestamp.split()[1] else timestamp.split()[0]
-            # 确保格式为 HH:MM:SS
-            if timestamp.count(':') == 1:
-                timestamp += ':00'
-        except:
-            timestamp = datetime.fromtimestamp(file_mtime).strftime('%H:%M:%S')
+    # 计算 com.apple.driver.* 和 com.apple.iokit.* 的总和
+    driver_xxx_sum = sum(v for k, v in data['drivers'].items() if k.startswith('com.apple.driver.'))
+    iokit_xxx_sum = sum(v for k, v in data['drivers'].items() if k.startswith('com.apple.iokit.'))
 
     row = {
         'File': filename,
-        'Time': timestamp,
         '内核占用_KB': kernel_kb,
         '内核占用_MB': round(kernel_kb / 1024, 2),
         '驱动占用_KB': driver_kb,
@@ -163,7 +156,10 @@ def format_output_row(filename, data, kernel_kb, driver_kb, file_mtime):
         'VM_KERN_总和_KB': sum(data['vm_kern'].values()),
         'VM_KERN_COUNT_BOOT_STOLEN_KB': data['vm_kern'].get('VM_KERN_COUNT_BOOT_STOLEN', 0),
         'com.apple.*_总和_KB': sum(data['drivers'].values()),
+        'com.apple.iokit.IOSurface_KB': data['drivers'].get('com.apple.iokit.IOSurface', 0),
         'com.apple.filesystems.apfs_KB': data['drivers'].get('com.apple.filesystems.apfs', 0),
+        'com.apple.driver.*_总和_KB': driver_xxx_sum,
+        'com.apple.iokit.*_总和_KB': iokit_xxx_sum,
     }
 
     # 添加所有 VM_KERN_* 字段
@@ -177,7 +173,7 @@ def format_output_row(filename, data, kernel_kb, driver_kb, file_mtime):
 
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = BASE_DIR if BASE_DIR else os.path.dirname(os.path.abspath(__file__))
 
     zprint_files = []
     for fname in os.listdir(script_dir):
@@ -208,10 +204,10 @@ def main():
 
     # 输出到 XLSX
     if results:
-        output_file = os.path.join(script_dir, 'ios_zprint_report.xlsx')
+        output_file = os.path.join(script_dir, 'ios_zprint.xlsx')
 
         # 合并所有文件的字段（保持固定列在前，动态列按字母排序在后）
-        fixed_cols = list(results[0].keys())[:12]  # 前12个固定汇总列（增加了 Time 列）
+        fixed_cols = list(results[0].keys())[:14]  # 前14个固定汇总列
         all_dynamic = set()
         for row in results:
             all_dynamic.update(k for k in row if k not in fixed_cols)
@@ -238,7 +234,7 @@ def main():
         # print(f"  内核占用 = (所有 VM_KERN_* + zones) - VM_KERN_COUNT_BOOT_STOLEN + WIRED_残余")
         # print(f"  驱动占用 = sum(com.apple.*) - com.apple.filesystems.apfs")
     else:
-        print("错误: 没有数据可输出")
+        print("没有数据可输出")
 
 
 if __name__ == '__main__':
