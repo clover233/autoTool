@@ -8,7 +8,7 @@
 
 | 当前文件 | 功能 | 原文件/功能来源 |
 | --- | --- | --- |
-| `export_activity_monitor.py` | 批量将 `.trace` 导出为进程内存 XML | `analyze-memall.py` |
+| `export_memoryxml.py` | 批量将 `.trace` 导出为进程内存 XML | `analyze-memall.py` |
 | `parse_trace_xml.py` | 将原始进程 XML 转成 Excel，不需要步骤日志 | `xc.py` / `xcnolog.py` 的默认执行功能 |
 | `analyze_memory.py` | 根据步骤日志生成一个用例的内存分类 Excel | `xc.py` / `xcnolog.py` 的内存分析类 |
 | `summarize_memory.py` | 按录制时间汇总各 trace 的第 2 个采样点 | 同名原文件 |
@@ -63,7 +63,7 @@ result1/
 ### 1. 导出进程内存 XML
 
 ```bash
-python3 export_activity_monitor.py --result-dir "/path/to/result1"
+python3 export_memoryxml.py --result-dir "/path/to/result1"
 ```
 
 每个 `.trace` 旁生成同名 `.xml`，导出 schema 为 `activity-monitor-process-live`，run 为 1。
@@ -73,7 +73,7 @@ python3 export_activity_monitor.py --result-dir "/path/to/result1"
 默认沿用环境变量 `DEVELOPER_DIR` 或系统 Xcode 选择。需要指定 Xcode 时：
 
 ```bash
-python3 export_activity_monitor.py -r "/path/to/result1" \
+python3 export_memoryxml.py -r "/path/to/result1" \
   --developer-dir "/Applications/Xcode.app/Contents/Developer" --force
 ```
 

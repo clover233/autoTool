@@ -5,7 +5,7 @@
 运行：python3 summarize_memory.py --result-dir /你的/Result/result1
 仅校验：python3 summarize_memory.py --result-dir /你的/Result/result1 --check-only
 
-读取已由 export_activity_monitor.py 导出的 XML，不直接读取 .trace 包。
+读取已由 export_memoryxml.py 导出的 XML，不直接读取 .trace 包。
 采样点按 start 数值排序；第 2 点是第 2 个不同时间戳，不是第 2 行进程数据。
 内存只取 memory-physical-footprint；MiB = bytes / 1024 / 1024。
 """
