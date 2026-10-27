@@ -13,7 +13,8 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-DEFAULT_INPUT = Path('/Users/clover/Desktop/SeaOfStars7i/Result/result1/vmstats.log')
+from xctrace_tools.config import DEFAULT_VMSTATS_INPUT as DEFAULT_INPUT
+
 LINE_PATTERN = re.compile(r'^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s*(\{.*\})$')
 
 
@@ -61,10 +62,6 @@ def parse_log(input_path):
 
 def convert(input_path, output_path=None):
     """导出 xlsx；时间为 Excel 日期，缺失字段留空，不合并重复时间。"""
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment
-    from openpyxl.utils import get_column_letter
-
     input_path = Path(input_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve() if output_path else input_path.with_suffix('.xlsx')
     if input_path == output_path:
@@ -72,6 +69,11 @@ def convert(input_path, output_path=None):
     if output_path.suffix.lower() != '.xlsx':
         raise ValueError('输出文件必须使用 .xlsx 扩展名')
     headers, records = parse_log(input_path)
+    write_workbook(headers, records, output_path)
+    return output_path, len(records), len(headers)
+
+
+def group_headers(headers):
     # 按父级分组，保证后续采样新增的字段也落在对应合并表头下。
     groups = {}
     for key in headers[1:]:
@@ -80,6 +82,16 @@ def convert(input_path, output_path=None):
             parts = parts[1:]
         group = '.'.join(parts[:-1])
         groups.setdefault(group, []).append(key)
+    return groups
+
+
+def write_workbook(headers, records, output_path):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
+
+    output_path = Path(output_path)
+    groups = group_headers(headers)
     headers = ['timestamp', *(key for keys in groups.values() for key in keys)]
     workbook = Workbook()
     sheet = workbook.active
@@ -117,14 +129,13 @@ def convert(input_path, output_path=None):
     sheet.auto_filter.ref = f'A2:{get_column_letter(len(headers))}{sheet.max_row}'
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output_path)
-    return output_path, len(records), len(headers)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('input', nargs='?', type=Path, default=DEFAULT_INPUT, help='日志路径')
     parser.add_argument('-o', '--output', type=Path, help='输出路径，默认日志同目录、同名 .xlsx')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         output, rows, columns = convert(args.input, args.output)
     except ModuleNotFoundError as exc:
